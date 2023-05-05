@@ -7,6 +7,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/envoyproxy/ratelimit/src/filter"
 	"github.com/envoyproxy/ratelimit/src/stats"
 
 	"github.com/coocood/freecache"
@@ -20,6 +21,10 @@ import (
 )
 
 var tracer = otel.Tracer("redis.fixedCacheImpl")
+
+const (
+	cacheKeyBlocked = "_user_blocked"
+)
 
 type fixedRateLimitCacheImpl struct {
 	client Client
@@ -39,15 +44,28 @@ func pipelineAppend(client Client, pipeline *Pipeline, key string, hitsAddend ui
 func (this *fixedRateLimitCacheImpl) DoLimit(
 	ctx context.Context,
 	request *pb.RateLimitRequest,
-	limits []*config.RateLimit) []*pb.RateLimitResponse_DescriptorStatus {
+	limits []*config.RateLimit,
+	forceFlag bool,
+	ipFilter filter.Filter,
+	uidFilter filter.Filter,
+	onlyLogOnLimit bool,
+) []*pb.RateLimitResponse_DescriptorStatus {
 
 	logger.Debugf("starting cache lookup")
 
 	// request.HitsAddend could be 0 (default value) if not specified by the caller in the RateLimit request.
 	hitsAddend := utils.Max(1, request.HitsAddend)
 
+	responseDescriptorStatuses := make([]*pb.RateLimitResponse_DescriptorStatus,
+		len(request.Descriptors))
+	if forceFlag {
+		for i := range responseDescriptorStatuses {
+			responseDescriptorStatuses[i] = this.baseRateLimiter.GetResponseDescriptorStatus("", nil, false, 0)
+		}
+		return responseDescriptorStatuses
+	}
 	// First build a list of all cache keys that we are actually going to hit.
-	cacheKeys := this.baseRateLimiter.GenerateCacheKeys(request, limits, hitsAddend)
+	cacheKeys := this.baseRateLimiter.GenerateCacheKeys(request, limits, hitsAddend, ipFilter, uidFilter)
 
 	isOverLimitWithLocalCache := make([]bool, len(request.Descriptors))
 	results := make([]uint32, len(request.Descriptors))
@@ -110,13 +128,16 @@ func (this *fixedRateLimitCacheImpl) DoLimit(
 	}
 
 	// Now fetch the pipeline.
-	responseDescriptorStatuses := make([]*pb.RateLimitResponse_DescriptorStatus,
-		len(request.Descriptors))
 	for i, cacheKey := range cacheKeys {
-
 		limitAfterIncrease := results[i]
 		limitBeforeIncrease := limitAfterIncrease - hitsAddend
 
+		logger.Debugf("cache key: %s current: %d", cacheKey.Key, limitAfterIncrease)
+		if onlyLogOnLimit && (cacheKey.Key == cacheKeyBlocked || isOverLimitWithLocalCache[i] || limits[i] == nil || limitAfterIncrease > limits[i].Limit.RequestsPerUnit) {
+			logger.Infof("Triggered ratelimit for key: %s", cacheKey.Key)
+			responseDescriptorStatuses[i] = this.baseRateLimiter.GetResponseDescriptorStatus("", nil, false, 0)
+			continue
+		}
 		limitInfo := limiter.NewRateLimitInfo(limits[i], limitBeforeIncrease, limitAfterIncrease, 0, 0)
 
 		responseDescriptorStatuses[i] = this.baseRateLimiter.GetResponseDescriptorStatus(cacheKey.Key,

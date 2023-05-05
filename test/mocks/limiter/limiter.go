@@ -12,6 +12,7 @@ import (
 	gomock "github.com/golang/mock/gomock"
 
 	config "github.com/envoyproxy/ratelimit/src/config"
+	"github.com/envoyproxy/ratelimit/src/filter"
 )
 
 // MockRateLimitCache is a mock of RateLimitCache interface
@@ -38,7 +39,7 @@ func (m *MockRateLimitCache) EXPECT() *MockRateLimitCacheMockRecorder {
 }
 
 // DoLimit mocks base method
-func (m *MockRateLimitCache) DoLimit(arg0 context.Context, arg1 *envoy_service_ratelimit_v3.RateLimitRequest, arg2 []*config.RateLimit) []*envoy_service_ratelimit_v3.RateLimitResponse_DescriptorStatus {
+func (m *MockRateLimitCache) DoLimit(arg0 context.Context, arg1 *envoy_service_ratelimit_v3.RateLimitRequest, arg2 []*config.RateLimit, arg3 bool, arg4, arg5 filter.Filter, arg6 bool) []*envoy_service_ratelimit_v3.RateLimitResponse_DescriptorStatus {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DoLimit", arg0, arg1, arg2)
 	ret0, _ := ret[0].([]*envoy_service_ratelimit_v3.RateLimitResponse_DescriptorStatus)

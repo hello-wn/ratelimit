@@ -10,6 +10,7 @@ import (
 
 	"github.com/envoyproxy/ratelimit/src/assert"
 	"github.com/envoyproxy/ratelimit/src/config"
+	"github.com/envoyproxy/ratelimit/src/filter"
 	"github.com/envoyproxy/ratelimit/src/stats"
 	"github.com/envoyproxy/ratelimit/src/utils"
 )
@@ -43,14 +44,17 @@ func NewRateLimitInfo(limit *config.RateLimit, limitBeforeIncrease uint32, limit
 // Generates cache keys for given rate limit request. Each cache key is represented by a concatenation of
 // domain, descriptor and current timestamp.
 func (this *BaseRateLimiter) GenerateCacheKeys(request *pb.RateLimitRequest,
-	limits []*config.RateLimit, hitsAddend uint32) []CacheKey {
+	limits []*config.RateLimit, hitsAddend uint32,
+	ipFilter filter.Filter,
+	uidFilter filter.Filter,
+) []CacheKey {
 	assert.Assert(len(request.Descriptors) == len(limits))
 	cacheKeys := make([]CacheKey, len(request.Descriptors))
 	now := this.timeSource.UnixNow()
 	for i := 0; i < len(request.Descriptors); i++ {
 		// generateCacheKey() returns an empty string in the key if there is no limit
 		// so that we can keep the arrays all the same size.
-		cacheKeys[i] = this.cacheKeyGenerator.GenerateCacheKey(request.Domain, request.Descriptors[i], limits[i], now)
+		cacheKeys[i] = this.cacheKeyGenerator.GenerateCacheKey(request.Domain, request.Descriptors[i], limits[i], now, ipFilter, uidFilter)
 		// Increase statistics for limits hit by their respective requests.
 		if limits[i] != nil {
 			limits[i].Stats.TotalHits.Add(uint64(hitsAddend))

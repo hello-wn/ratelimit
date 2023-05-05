@@ -2,11 +2,14 @@ package settings
 
 import (
 	"crypto/tls"
+	"net"
+	"strings"
 	"time"
 
 	"github.com/kelseyhightower/envconfig"
 	"google.golang.org/grpc"
 
+	"github.com/envoyproxy/ratelimit/src/filter"
 	"github.com/envoyproxy/ratelimit/src/utils"
 )
 
@@ -164,7 +167,15 @@ type Settings struct {
 	TracingExporterProtocol string `envconfig:"TRACING_EXPORTER_PROTOCOL" default:"http"`
 	// detailed setting of exporter should refer to https://opentelemetry.io/docs/reference/specification/protocol/exporter/, e.g. OTEL_EXPORTER_OTLP_ENDPOINT, OTEL_EXPORTER_OTLP_CERTIFICATE, OTEL_EXPORTER_OTLP_TIMEOUT
 	// TracingSamplingRate defaults to 1 which amounts to using the `AlwaysSample` sampler
-	TracingSamplingRate float64 `envconfig:"TRACING_SAMPLING_RATE" default:"1"`
+	TracingSamplingRate  float64 `envconfig:"TRACING_SAMPLING_RATE" default:"1"`
+	ForceFlag            bool    `envconfig:"FORCE_FLAG" default:"false"`
+	OnlyLogOnLimit       bool    `envconfig:"ONLY_LOG_ON_LIMIT" default:"false"`
+	BlackListIPNetString string  `envconfig:"BLACKLIST_IP_NET" default:""`
+	WhiteListIPNetString string  `envconfig:"WHITELIST_IP_NET" default:"192.168.0.0/24,10.0.0.0/8"`
+	BlackListUIDString   string  `envconfig:"BLACKLIST_UID" default:"123,456,789"`
+	WhiteListUIDString   string  `envconfig:"WHITELIST_UID" default:""`
+	IPFilter             filter.Filter
+	UIDFilter            filter.Filter
 }
 
 type Option func(*Settings)
@@ -178,6 +189,17 @@ func NewSettings() Settings {
 	RedisTlsConfig(s.RedisTls || s.RedisPerSecondTls)(&s)
 	GrpcServerTlsConfig()(&s)
 	ConfigGrpcXdsServerTlsConfig()(&s)
+	whiteListIPNetList, err := parseIPNetString(s.WhiteListIPNetString)
+	if err != nil {
+		panic(err)
+	}
+	blackListIPNetList, err := parseIPNetString(s.BlackListIPNetString)
+	if err != nil {
+		panic(err)
+	}
+	s.IPFilter = filter.NewIPFilter(whiteListIPNetList, blackListIPNetList)
+	s.UIDFilter = filter.NewUIDFilter(parseUIDString(s.WhiteListUIDString), parseUIDString(s.BlackListUIDString))
+
 	return s
 }
 
@@ -225,4 +247,35 @@ func GrpcUnaryInterceptor(i grpc.UnaryServerInterceptor) Option {
 	return func(s *Settings) {
 		s.GrpcUnaryInterceptor = i
 	}
+}
+
+func parseIPNetString(IPNetString string) ([]*net.IPNet, error) {
+	ipNetStringList := strings.Split(IPNetString, ",")
+	var result []*net.IPNet
+	for _, ipNetString := range ipNetStringList {
+		ipNetString = strings.TrimSpace(ipNetString)
+		if ipNetString == "" {
+			continue
+		}
+		_, ipNet, err := net.ParseCIDR(ipNetString)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, ipNet)
+	}
+	return result, nil
+}
+
+func parseUIDString(uidList string) map[string]struct{} {
+	uidMap := make(map[string]struct{})
+	uidItems := strings.Split(uidList, ",")
+	for _, v := range uidItems {
+		uid := strings.TrimSpace(v)
+		if uid == "" {
+			continue
+		}
+
+		uidMap[uid] = struct{}{}
+	}
+	return uidMap
 }

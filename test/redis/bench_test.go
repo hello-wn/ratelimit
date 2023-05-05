@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/envoyproxy/ratelimit/src/settings"
 	"github.com/envoyproxy/ratelimit/test/mocks/stats"
 
 	pb "github.com/envoyproxy/go-control-plane/envoy/service/ratelimit/v3"
@@ -17,6 +18,11 @@ import (
 	"github.com/envoyproxy/ratelimit/src/utils"
 
 	"github.com/envoyproxy/ratelimit/test/common"
+)
+
+var (
+	ipFilter  = settings.NewSettings().IPFilter
+	uidFilter = settings.NewSettings().UIDFilter
 )
 
 func BenchmarkParallelDoLimit(b *testing.B) {
@@ -62,7 +68,7 @@ func BenchmarkParallelDoLimit(b *testing.B) {
 			b.ResetTimer()
 
 			do(b, func() error {
-				cache.DoLimit(context.Background(), request, limits)
+				cache.DoLimit(context.Background(), request, limits, false, ipFilter, uidFilter, false)
 				return nil
 			})
 		}

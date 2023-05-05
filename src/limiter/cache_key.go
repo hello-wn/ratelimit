@@ -9,7 +9,16 @@ import (
 	pb "github.com/envoyproxy/go-control-plane/envoy/service/ratelimit/v3"
 
 	"github.com/envoyproxy/ratelimit/src/config"
+	"github.com/envoyproxy/ratelimit/src/filter"
 	"github.com/envoyproxy/ratelimit/src/utils"
+
+	logger "github.com/sirupsen/logrus"
+)
+
+const (
+	entryKeyRemoteAddr = "remote_address"
+	entryKeyUserID     = "user_id"
+	cacheKeyBlocked    = "_user_blocked"
 )
 
 type CacheKeyGenerator struct {
@@ -46,7 +55,7 @@ func isPerSecondLimit(unit pb.RateLimitResponse_RateLimit_Unit) bool {
 // @param now supplies the current unix time.
 // @return CacheKey struct.
 func (this *CacheKeyGenerator) GenerateCacheKey(
-	domain string, descriptor *pb_struct.RateLimitDescriptor, limit *config.RateLimit, now int64) CacheKey {
+	domain string, descriptor *pb_struct.RateLimitDescriptor, limit *config.RateLimit, now int64, ipFilter filter.Filter, uidFilter filter.Filter) CacheKey {
 
 	if limit == nil {
 		return CacheKey{
@@ -64,6 +73,42 @@ func (this *CacheKeyGenerator) GenerateCacheKey(
 	b.WriteByte('_')
 
 	for _, entry := range descriptor.Entries {
+		if domain == "edge_proxy_per_ip" {
+			logger.Debugf("Checking entry key: %s , entry value: %s", entry.Key, entry.Value)
+
+			if entry.Key == entryKeyRemoteAddr {
+				switch action, reason := ipFilter.Match(entry.Value); action {
+				case filter.FilterActionAllow:
+					return CacheKey{
+						Key:       "",
+						PerSecond: false,
+					}
+				case filter.FilterActionDeny:
+					return CacheKey{
+						Key:       cacheKeyBlocked,
+						PerSecond: false,
+					}
+				case filter.FilterActionError:
+					logger.Warningf(reason)
+				}
+			}
+
+			if entry.Key == entryKeyUserID {
+				switch action, _ := uidFilter.Match(entry.Value); action {
+				case filter.FilterActionAllow:
+					return CacheKey{
+						Key:       "",
+						PerSecond: false,
+					}
+				case filter.FilterActionDeny:
+					return CacheKey{
+						Key:       cacheKeyBlocked,
+						PerSecond: false,
+					}
+				}
+			}
+		}
+
 		b.WriteString(entry.Key)
 		b.WriteByte('_')
 		b.WriteString(entry.Value)

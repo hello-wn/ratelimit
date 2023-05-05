@@ -5,6 +5,7 @@ import (
 	"golang.org/x/net/context"
 
 	"github.com/envoyproxy/ratelimit/src/config"
+	"github.com/envoyproxy/ratelimit/src/filter"
 )
 
 // Interface for interacting with a cache backend for rate limiting.
@@ -21,7 +22,12 @@ type RateLimitCache interface {
 	DoLimit(
 		ctx context.Context,
 		request *pb.RateLimitRequest,
-		limits []*config.RateLimit) []*pb.RateLimitResponse_DescriptorStatus
+		limits []*config.RateLimit,
+		forceFlag bool,
+		ipFilter filter.Filter,
+		uidFilter filter.Filter,
+		onlyLogOnLimit bool,
+	) []*pb.RateLimitResponse_DescriptorStatus
 
 	// Waits for any unfinished asynchronous work. This may be used by unit tests,
 	// since the memcache cache does increments in a background gorountine.

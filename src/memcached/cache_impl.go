@@ -38,6 +38,7 @@ import (
 	pb "github.com/envoyproxy/go-control-plane/envoy/service/ratelimit/v3"
 
 	"github.com/envoyproxy/ratelimit/src/config"
+	"github.com/envoyproxy/ratelimit/src/filter"
 	"github.com/envoyproxy/ratelimit/src/limiter"
 	"github.com/envoyproxy/ratelimit/src/settings"
 	"github.com/envoyproxy/ratelimit/src/srv"
@@ -64,7 +65,12 @@ var _ limiter.RateLimitCache = (*rateLimitMemcacheImpl)(nil)
 func (this *rateLimitMemcacheImpl) DoLimit(
 	ctx context.Context,
 	request *pb.RateLimitRequest,
-	limits []*config.RateLimit) []*pb.RateLimitResponse_DescriptorStatus {
+	limits []*config.RateLimit,
+	forceFlag bool,
+	ipFilter filter.Filter,
+	uidFilter filter.Filter,
+	onlyLogOnLimit bool,
+) []*pb.RateLimitResponse_DescriptorStatus {
 
 	logger.Debugf("starting cache lookup")
 
@@ -72,7 +78,7 @@ func (this *rateLimitMemcacheImpl) DoLimit(
 	hitsAddend := utils.Max(1, request.HitsAddend)
 
 	// First build a list of all cache keys that we are actually going to hit.
-	cacheKeys := this.baseRateLimiter.GenerateCacheKeys(request, limits, hitsAddend)
+	cacheKeys := this.baseRateLimiter.GenerateCacheKeys(request, limits, hitsAddend, ipFilter, uidFilter)
 
 	isOverLimitWithLocalCache := make([]bool, len(request.Descriptors))
 
