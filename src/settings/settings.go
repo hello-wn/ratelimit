@@ -1,16 +1,25 @@
 package settings
 
 import (
+	"context"
 	"crypto/tls"
+	"fmt"
+	"log"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/go-redis/redis/v8"
 	"github.com/kelseyhightower/envconfig"
 	"google.golang.org/grpc"
 
 	"github.com/envoyproxy/ratelimit/src/filter"
 	"github.com/envoyproxy/ratelimit/src/utils"
+
+	"github.com/beatlabs/harvester"
+	harvesterconfig "github.com/beatlabs/harvester/config"
+	harvestersync "github.com/beatlabs/harvester/sync"
 )
 
 type Settings struct {
@@ -178,6 +187,13 @@ type Settings struct {
 	UIDFilter            filter.Filter
 }
 
+type dynamicConfig struct {
+	BlackListIPNetString harvestersync.String `seed:"" redis:"blacklist_ip_net" env:"BLACKLIST_IP_NET"`
+	WhiteListIPNetString harvestersync.String `seed:"192.168.0.0/24,10.0.0.0/8" redis:"whitelist_ip_net" env:"WHITELIST_IP_NET"`
+	BlackListUIDString   harvestersync.String `seed:"123,456,789" redis:"blacklist_uid" env:"BLACKLIST_UID"`
+	WhiteListUIDString   harvestersync.String `seed:"" redis:"whitelist_uid" env:"WHITELIST_UID"`
+}
+
 type Option func(*Settings)
 
 func NewSettings() Settings {
@@ -189,17 +205,55 @@ func NewSettings() Settings {
 	RedisTlsConfig(s.RedisTls || s.RedisPerSecondTls)(&s)
 	GrpcServerTlsConfig()(&s)
 	ConfigGrpcXdsServerTlsConfig()(&s)
-	whiteListIPNetList, err := parseIPNetString(s.WhiteListIPNetString)
+
+	ctx, cnl := context.WithCancel(context.Background())
+	defer cnl()
+
+	chNotify := make(chan harvesterconfig.ChangeNotification)
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+
+	go func() {
+		for change := range chNotify {
+			log.Printf("notification: " + change.String())
+		}
+		wg.Done()
+	}()
+
+	redisClient := redis.NewClient(&redis.Options{
+		Addr:     s.RedisUrl,
+		Password: s.RedisAuth,
+	})
+
+	dc := dynamicConfig{}
+	h, err := harvester.New(&dc, chNotify,
+		harvester.WithRedisSeed(redisClient),
+		harvester.WithRedisMonitor(redisClient, 200*time.Millisecond),
+	)
+	if err != nil {
+		log.Fatalf("failed to create harvester: %v", err)
+	}
+
+	err = h.Harvest(ctx)
+	if err != nil {
+		log.Fatalf("failed to harvest configuration: %v", err)
+	}
+	log.Println("DEBUG dynamicConfig: ", dc.WhiteListIPNetString.Get(), dc.WhiteListUIDString.Get(), dc.BlackListIPNetString.Get(), dc.BlackListUIDString.Get())
+	fmt.Println("DEBUG dynamicConfig: ", dc.WhiteListIPNetString.Get(), dc.WhiteListUIDString.Get(), dc.BlackListIPNetString.Get(), dc.BlackListUIDString.Get())
+
+	whiteListIPNetList, err := parseIPNetString(dc.WhiteListIPNetString.Get())
 	if err != nil {
 		panic(err)
 	}
-	blackListIPNetList, err := parseIPNetString(s.BlackListIPNetString)
+	blackListIPNetList, err := parseIPNetString(dc.BlackListIPNetString.Get())
 	if err != nil {
 		panic(err)
 	}
 	s.IPFilter = filter.NewIPFilter(whiteListIPNetList, blackListIPNetList)
-	s.UIDFilter = filter.NewUIDFilter(parseUIDString(s.WhiteListUIDString), parseUIDString(s.BlackListUIDString))
+	s.UIDFilter = filter.NewUIDFilter(parseUIDString(dc.WhiteListUIDString.Get()), parseUIDString(dc.BlackListUIDString.Get()))
 
+	fmt.Println("DEBUG settings: ", whiteListIPNetList, blackListIPNetList)
+	log.Println("DEBUG settings: ", whiteListIPNetList, blackListIPNetList)
 	return s
 }
 
