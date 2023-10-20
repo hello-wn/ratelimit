@@ -188,6 +188,7 @@ type Settings struct {
 }
 
 type dynamicConfig struct {
+	LogLevel       harvestersync.String          `seed:"DEBUG" flag:"loglevel"`
 	BlackListIPNetString harvestersync.String `seed:"" redis:"blacklist_ip_net" env:"BLACKLIST_IP_NET"`
 	WhiteListIPNetString harvestersync.String `seed:"192.168.0.0/24,10.0.0.0/8" redis:"whitelist_ip_net" env:"WHITELIST_IP_NET"`
 	BlackListUIDString   harvestersync.String `seed:"123,456,789" redis:"blacklist_uid" env:"BLACKLIST_UID"`
@@ -224,11 +225,13 @@ func NewSettings() Settings {
 		Addr:     s.RedisUrl,
 		Password: s.RedisAuth,
 	})
+	log.Println("DEBUG redis config: ", s.RedisUrl, s.RedisAuth)
+	fmt.Println("DEBUG redis config: ", s.RedisUrl, s.RedisAuth)
 
 	dc := dynamicConfig{}
 	h, err := harvester.New(&dc, chNotify,
 		harvester.WithRedisSeed(redisClient),
-		harvester.WithRedisMonitor(redisClient, 200*time.Millisecond),
+		harvester.WithRedisMonitor(redisClient, 1 * time.Minute),
 	)
 	if err != nil {
 		log.Fatalf("failed to create harvester: %v", err)
