@@ -185,10 +185,11 @@ type Settings struct {
 	WhiteListUIDString   string  `envconfig:"WHITELIST_UID" default:""`
 	IPFilter             filter.Filter
 	UIDFilter            filter.Filter
+	EnableDynamicConfig  bool `envconfig:"ENABLE_DYNAMIC_CONFIG" default:"false"`
 }
 
 type dynamicConfig struct {
-	LogLevel       harvestersync.String          `seed:"DEBUG" flag:"loglevel"`
+	LogLevel             harvestersync.String `seed:"DEBUG" flag:"loglevel"`
 	BlackListIPNetString harvestersync.String `seed:"" redis:"blacklist_ip_net" env:"BLACKLIST_IP_NET"`
 	WhiteListIPNetString harvestersync.String `seed:"192.168.0.0/24,10.0.0.0/8" redis:"whitelist_ip_net" env:"WHITELIST_IP_NET"`
 	BlackListUIDString   harvestersync.String `seed:"123,456,789" redis:"blacklist_uid" env:"BLACKLIST_UID"`
@@ -225,38 +226,42 @@ func NewSettings() Settings {
 		Addr:     s.RedisUrl,
 		Password: s.RedisAuth,
 	})
-	log.Println("DEBUG redis config: ", s.RedisUrl, s.RedisAuth)
 	fmt.Println("DEBUG redis config: ", s.RedisUrl, s.RedisAuth)
 
-	dc := dynamicConfig{}
-	h, err := harvester.New(&dc, chNotify,
-		harvester.WithRedisSeed(redisClient),
-		harvester.WithRedisMonitor(redisClient, 1 * time.Minute),
-	)
-	if err != nil {
-		log.Fatalf("failed to create harvester: %v", err)
+	if s.EnableDynamicConfig {
+		fmt.Println("DEBUG enable dynamic config")
+
+		dc := dynamicConfig{}
+		h, err := harvester.New(&dc, chNotify,
+			harvester.WithRedisSeed(redisClient),
+			harvester.WithRedisMonitor(redisClient, 1*time.Minute),
+		)
+		if err != nil {
+			log.Fatalf("failed to create harvester: %v", err)
+		}
+
+		err = h.Harvest(ctx)
+		if err != nil {
+			log.Fatalf("failed to harvest configuration: %v", err)
+		}
+		fmt.Println("DEBUG dynamicConfig: ", dc.WhiteListIPNetString.Get(), dc.WhiteListUIDString.Get(), dc.BlackListIPNetString.Get(), dc.BlackListUIDString.Get())
+
+		s.WhiteListIPNetString = dc.WhiteListIPNetString.Get()
+		s.BlackListIPNetString = dc.BlackListIPNetString.Get()
+		s.WhiteListUIDString = dc.WhiteListUIDString.Get()
+		s.BlackListUIDString = dc.BlackListUIDString.Get()
 	}
 
-	err = h.Harvest(ctx)
-	if err != nil {
-		log.Fatalf("failed to harvest configuration: %v", err)
-	}
-	log.Println("DEBUG dynamicConfig: ", dc.WhiteListIPNetString.Get(), dc.WhiteListUIDString.Get(), dc.BlackListIPNetString.Get(), dc.BlackListUIDString.Get())
-	fmt.Println("DEBUG dynamicConfig: ", dc.WhiteListIPNetString.Get(), dc.WhiteListUIDString.Get(), dc.BlackListIPNetString.Get(), dc.BlackListUIDString.Get())
-
-	whiteListIPNetList, err := parseIPNetString(dc.WhiteListIPNetString.Get())
+	whiteListIPNetList, err := parseIPNetString(s.WhiteListIPNetString)
 	if err != nil {
 		panic(err)
 	}
-	blackListIPNetList, err := parseIPNetString(dc.BlackListIPNetString.Get())
+	blackListIPNetList, err := parseIPNetString(s.BlackListIPNetString)
 	if err != nil {
 		panic(err)
 	}
 	s.IPFilter = filter.NewIPFilter(whiteListIPNetList, blackListIPNetList)
-	s.UIDFilter = filter.NewUIDFilter(parseUIDString(dc.WhiteListUIDString.Get()), parseUIDString(dc.BlackListUIDString.Get()))
-
-	fmt.Println("DEBUG settings: ", whiteListIPNetList, blackListIPNetList)
-	log.Println("DEBUG settings: ", whiteListIPNetList, blackListIPNetList)
+	s.UIDFilter = filter.NewUIDFilter(parseUIDString(s.WhiteListUIDString), parseUIDString(s.BlackListUIDString))
 	return s
 }
 
