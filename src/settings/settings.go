@@ -207,26 +207,25 @@ func NewSettings() Settings {
 	GrpcServerTlsConfig()(&s)
 	ConfigGrpcXdsServerTlsConfig()(&s)
 
-	ctx, cnl := context.WithCancel(context.Background())
-	defer cnl()
-
-	chNotify := make(chan harvesterconfig.ChangeNotification)
-	wg := sync.WaitGroup{}
-	wg.Add(1)
-
-	go func() {
-		for change := range chNotify {
-			log.Printf("notification: " + change.String())
-		}
-		wg.Done()
-	}()
-
-	redisClient := redis.NewClient(&redis.Options{
-		Addr:     s.RedisUrl,
-		Password: s.RedisAuth,
-	})
-
 	if s.EnableDynamicConfig {
+		ctx, cnl := context.WithCancel(context.Background())
+		defer cnl()
+
+		chNotify := make(chan harvesterconfig.ChangeNotification)
+		wg := sync.WaitGroup{}
+		wg.Add(1)
+
+		go func() {
+			for change := range chNotify {
+				log.Printf("notification: " + change.String())
+			}
+			wg.Done()
+		}()
+
+		redisClient := redis.NewClient(&redis.Options{
+			Addr:     s.RedisUrl,
+			Password: s.RedisAuth,
+		})
 		dc := dynamicConfig{}
 		h, err := harvester.New(&dc, chNotify,
 			harvester.WithRedisSeed(redisClient),
