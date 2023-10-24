@@ -186,7 +186,6 @@ func (this *service) shouldRateLimitWorker(
 	limitsToCheck, isUnlimited := this.constructLimitsToCheck(request, ctx, snappedConfig)
 
 	s := settings.NewSettings()
-	fmt.Println("DEBUG in shouldRateLimitWorker", s.BlackListIPNetString, s.BlackListUIDString, s.WhiteListIPNetString, s.WhiteListUIDString)
 	responseDescriptorStatuses := this.cache.DoLimit(ctx, request, limitsToCheck, s.ForceFlag, s.IPFilter, s.UIDFilter, s.OnlyLogOnLimit)
 	assert.Assert(len(limitsToCheck) == len(responseDescriptorStatuses))
 

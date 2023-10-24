@@ -3,7 +3,6 @@ package settings
 import (
 	"context"
 	"crypto/tls"
-	"fmt"
 	"log"
 	"net"
 	"strings"
@@ -226,11 +225,8 @@ func NewSettings() Settings {
 		Addr:     s.RedisUrl,
 		Password: s.RedisAuth,
 	})
-	fmt.Println("DEBUG redis config: ", s.RedisUrl, s.RedisAuth)
 
 	if s.EnableDynamicConfig {
-		fmt.Println("DEBUG enable dynamic config")
-
 		dc := dynamicConfig{}
 		h, err := harvester.New(&dc, chNotify,
 			harvester.WithRedisSeed(redisClient),
@@ -244,8 +240,6 @@ func NewSettings() Settings {
 		if err != nil {
 			log.Fatalf("failed to harvest configuration: %v", err)
 		}
-		fmt.Println("DEBUG dynamicConfig: ", dc.WhiteListIPNetString.Get(), dc.WhiteListUIDString.Get(), dc.BlackListIPNetString.Get(), dc.BlackListUIDString.Get())
-
 		s.WhiteListIPNetString = dc.WhiteListIPNetString.Get()
 		s.BlackListIPNetString = dc.BlackListIPNetString.Get()
 		s.WhiteListUIDString = dc.WhiteListUIDString.Get()
